@@ -72,3 +72,38 @@ class TestSQLiteStorageSyncRecovery:
         st2 = SQLiteStorage(tmp_skills_dir)
         skills = st2.list_skills()
         assert len(skills) == 1
+
+
+class TestSQLiteStorageEmbeddings:
+    def test_save_auto_embeds_when_provider_given(self, tmp_skills_dir: Path):
+        from tests.helpers import MockEmbeddingProvider
+        embedder = MockEmbeddingProvider()
+        st = SQLiteStorage(tmp_skills_dir, embedding_provider=embedder)
+        st.save_skill(_make_skill("code-review", "coding"))
+        emb = st.get_embedding("code-review")
+        assert emb is not None
+        assert len(emb) == len(MockEmbeddingProvider.VOCAB)
+
+    def test_no_embeddings_without_provider(self, tmp_skills_dir: Path):
+        st = SQLiteStorage(tmp_skills_dir)
+        st.save_skill(_make_skill())
+        emb = st.get_embedding("test-skill")
+        assert emb is None
+
+    def test_get_all_embeddings(self, tmp_skills_dir: Path):
+        from tests.helpers import MockEmbeddingProvider
+        st = SQLiteStorage(tmp_skills_dir, embedding_provider=MockEmbeddingProvider())
+        st.save_skill(_make_skill("skill-a", "coding"))
+        st.save_skill(_make_skill("skill-b", "general"))
+        all_embs = st.get_all_embeddings()
+        assert len(all_embs) == 2
+        names = {name for name, _ in all_embs}
+        assert names == {"skill-a", "skill-b"}
+
+    def test_delete_removes_embedding(self, tmp_skills_dir: Path):
+        from tests.helpers import MockEmbeddingProvider
+        st = SQLiteStorage(tmp_skills_dir, embedding_provider=MockEmbeddingProvider())
+        st.save_skill(_make_skill("to-delete", "general"))
+        assert st.get_embedding("to-delete") is not None
+        st.delete_skill("to-delete")
+        assert st.get_embedding("to-delete") is None

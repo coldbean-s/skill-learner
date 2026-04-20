@@ -4,7 +4,7 @@ from pathlib import Path
 
 import pytest
 
-from tests.helpers import MockLLMProvider
+from tests.helpers import MockEmbeddingProvider, MockLLMProvider
 
 
 @pytest.fixture
@@ -17,3 +17,8 @@ def tmp_skills_dir(tmp_path: Path) -> Path:
 @pytest.fixture
 def mock_llm() -> MockLLMProvider:
     return MockLLMProvider()
+
+
+@pytest.fixture
+def mock_embedder() -> MockEmbeddingProvider:
+    return MockEmbeddingProvider()

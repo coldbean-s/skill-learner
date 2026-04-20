@@ -39,3 +39,29 @@ class MockLLMProvider:
             self._call_count += 1
             return resp
         return MockLLMResponse(content="Nothing to save.")
+
+
+class MockEmbeddingProvider:
+    """Mock embedder that produces bag-of-words style embeddings.
+
+    Uses a fixed vocabulary so similar texts yield similar vectors,
+    making semantic search testable without a real model.
+    """
+
+    VOCAB = [
+        "debug", "memory", "leak", "competitor", "analysis",
+        "search", "paper", "code", "test", "deploy",
+        "api", "database", "web", "file", "error",
+        "config", "build", "docker", "git", "review",
+    ]
+
+    def embed(self, texts: list[str]) -> list[list[float]]:
+        results = []
+        for text in texts:
+            lower = text.lower()
+            emb = [1.0 if word in lower else 0.0 for word in self.VOCAB]
+            norm = sum(x * x for x in emb) ** 0.5
+            if norm > 0:
+                emb = [x / norm for x in emb]
+            results.append(emb)
+        return results
