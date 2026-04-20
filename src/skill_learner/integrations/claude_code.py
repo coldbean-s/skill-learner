@@ -5,8 +5,56 @@ import re
 from pathlib import Path
 from typing import Any
 
-from skill_learner.prompts import SKILLS_GUIDANCE
 from skill_learner.storage.filesystem import FileStorage
+
+CLAUDE_CODE_SKILLS_GUIDANCE = """\
+## Skill Accumulation
+
+You have access to a **self-accumulating skill library** at `{skills_dir}`.
+
+### Reading Skills
+At the start of any non-trivial task, scan the skills directory for relevant SKILL.md files.
+Each skill has YAML frontmatter (name, description, category, tags) followed by markdown content.
+If a matching skill exists, read it and follow its workflow before improvising.
+
+### Saving New Skills
+After completing a **complex task** (5+ tool calls), fixing a tricky bug, or discovering
+a non-obvious workflow, save the approach as a reusable skill:
+
+1. Choose a kebab-case name (e.g. `memory-leak-debugging`)
+2. Pick a category: `coding`, `ops`, `research`, `business`, or `general`
+3. Create the file at `{skills_dir}/<category>/<name>/SKILL.md`
+4. Use this format:
+
+```
+---
+name: <name>
+description: <one-line description>
+version: 1.0.0
+category: <category>
+tags: [<tag1>, <tag2>]
+created_at: <ISO timestamp>
+updated_at: <ISO timestamp>
+author: auto-generated
+---
+
+<Markdown content: prerequisites, workflow steps, gotchas>
+```
+
+### Updating Skills
+When using an existing skill and finding it **outdated, incomplete, or wrong**,
+update the SKILL.md file directly. Bump the version and updated_at timestamp.
+
+### What to Save
+- Non-obvious debugging approaches (the fix that took 10 minutes to find)
+- Multi-step workflows with specific ordering or gotchas
+- API quirks, library-specific workarounds
+- Project-specific patterns that would trip up a fresh session
+
+### What NOT to Save
+- Trivial operations (standard CRUD, obvious config)
+- One-off fixes unlikely to recur
+- Information already in project docs or CLAUDE.md"""
 
 
 def init_claude_code(
@@ -19,41 +67,10 @@ def init_claude_code(
 
     claude_dir = project / ".claude"
     claude_dir.mkdir(parents=True, exist_ok=True)
-    sl_dir = claude_dir / "skill-learner"
-    sl_dir.mkdir(parents=True, exist_ok=True)
 
-    counter_sh = sl_dir / "counter.sh"
-    counter_sh.write_text(
-        '#!/bin/bash\n'
-        'COUNTER_FILE="/tmp/skill_learner_counter"\n'
-        'if [ -f "$COUNTER_FILE" ]; then\n'
-        '  count=$(cat "$COUNTER_FILE")\n'
-        '  echo $((count + 1)) > "$COUNTER_FILE"\n'
-        'else\n'
-        '  echo 1 > "$COUNTER_FILE"\n'
-        'fi\n',
-        encoding="utf-8",
-    )
-    created["counter.sh"] = str(counter_sh)
-
-    review_py = sl_dir / "review.py"
-    review_py.write_text(
-        '"""Trigger skill review from Claude Code hook."""\n'
-        'from pathlib import Path\n\n'
-        'COUNTER_FILE = Path("/tmp/skill_learner_counter")\n'
-        'THRESHOLD = 10\n\n'
-        'def check_and_review():\n'
-        '    if not COUNTER_FILE.exists():\n'
-        '        return\n'
-        '    count = int(COUNTER_FILE.read_text().strip())\n'
-        '    if count >= THRESHOLD:\n'
-        '        COUNTER_FILE.write_text("0")\n'
-        '        print(f"[skill-learner] Threshold reached ({count}), review triggered")\n\n'
-        'if __name__ == "__main__":\n'
-        '    check_and_review()\n',
-        encoding="utf-8",
-    )
-    created["review.py"] = str(review_py)
+    skills_path.mkdir(parents=True, exist_ok=True)
+    for cat in ("coding", "ops", "research", "business", "general"):
+        (skills_path / cat).mkdir(exist_ok=True)
 
     storage = FileStorage(skills_path)
     skills = storage.list_skills()
@@ -61,12 +78,14 @@ def init_claude_code(
     if skills:
         lines = []
         for s in skills:
-            lines.append(f"- **{s.name}**: {s.description}")
+            lines.append(f"- **{s.name}** (`{s.category}`): {s.description}")
         skills_index = "\n".join(lines)
 
-    claude_md = project / "CLAUDE.md"
-    skill_block = _build_claude_md_block(skills_index)
+    skills_dir_display = str(skills_path).replace("\\", "/")
+    guidance = CLAUDE_CODE_SKILLS_GUIDANCE.replace("{skills_dir}", skills_dir_display)
+    skill_block = _build_claude_md_block(guidance, skills_index)
 
+    claude_md = project / "CLAUDE.md"
     if claude_md.exists():
         existing = claude_md.read_text(encoding="utf-8")
         marker_start = "<!-- skill-learner:start -->"
@@ -83,27 +102,12 @@ def init_claude_code(
             claude_md.write_text(existing + "\n\n" + skill_block, encoding="utf-8")
     else:
         claude_md.write_text(skill_block, encoding="utf-8")
-
     created["CLAUDE.md"] = str(claude_md)
-
-    settings_path = claude_dir / "settings.json"
-    settings: dict[str, Any] = {}
-    if settings_path.exists():
-        settings = json.loads(settings_path.read_text(encoding="utf-8"))
-
-    hooks = settings.setdefault("hooks", {})
-    hooks["PostToolCall"] = [{"command": f"bash {counter_sh}"}]
-
-    settings_path.write_text(
-        json.dumps(settings, indent=2, ensure_ascii=False),
-        encoding="utf-8",
-    )
-    created["settings.json"] = str(settings_path)
 
     return created
 
 
-def _build_claude_md_block(skills_index: str) -> str:
+def _build_claude_md_block(guidance: str, skills_index: str) -> str:
     index_section = ""
     if skills_index:
         index_section = f"""
@@ -111,12 +115,12 @@ def _build_claude_md_block(skills_index: str) -> str:
 
 {skills_index}
 
-When a task relates to a listed skill, load and follow it before proceeding.
+When a task relates to a listed skill, read and follow it before proceeding.
 """
 
     return f"""<!-- skill-learner:start -->
 ## Skill Learning System
 
-{SKILLS_GUIDANCE}
+{guidance}
 {index_section}
 <!-- skill-learner:end -->"""
