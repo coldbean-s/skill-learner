@@ -18,7 +18,7 @@ from skill_learner.skill import (
 
 logger = logging.getLogger(__name__)
 
-_NAME_RE = re.compile(r"^[a-z0-9][a-z0-9\-]*[a-z0-9]$")
+_NAME_RE = re.compile(r"^[a-z0-9]([a-z0-9\-]*[a-z0-9])?$")
 
 
 class FileStorage:
