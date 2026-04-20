@@ -11,3 +11,4 @@ venv/
 .index.db
 .index.json
 *.db-journal
+skill-learner-readme/
